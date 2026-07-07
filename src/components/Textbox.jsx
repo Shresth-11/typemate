@@ -497,17 +497,20 @@ function Textbox({ loading }) {
 
           /* Suggestion toggle animations */
           .suggestionToggle {
-            position: relative;
+            position: absolute;
+            bottom: -18px;
+            left: 50%;
             width: 260px;
             height: 36px;
             user-select: none;
             cursor: pointer;
-            transform: rotateY(0deg);
+            transform: translateX(-50%) rotateY(0deg);
             transform-style: preserve-3d;
             transition: all .3s ease-out;
+            z-index: 30;
           }
           .suggestionToggle.flip {
-            transform: rotateY(180deg);
+            transform: translateX(-50%) rotateY(180deg);
           }
           .suggestionToggle .label {
             position: absolute;
@@ -608,7 +611,7 @@ function Textbox({ loading }) {
       </style>
       <div className="w-full h-full flex flex-col items-center justify-center relative flex-1 min-h-0">
         <div 
-          className="flex-1 min-h-0 flex flex-col relative px-3 md:px-5 pb-3 md:pb-5 pt-2 md:pt-3 max-w-[1600px] select-none"
+          className="flex flex-col relative px-3 md:px-5 pb-3 md:pb-5 pt-2 md:pt-3 w-full max-w-[1500px] select-none"
           style={containerStyle}
         >
  
@@ -794,7 +797,7 @@ function Textbox({ loading }) {
                 setSuggestionMode(prev => prev === 'sentence' ? 'word' : 'sentence');
               }
             }}
-            className={`suggestionToggle absolute bottom-[-18px] left-1/2 transform -translate-x-1/2 z-30 ${suggestionMode === 'word' ? 'flip' : ''} ${suggestionLoading ? 'loading' : ''}`}
+            className={`suggestionToggle ${suggestionMode === 'word' ? 'flip' : ''} ${suggestionLoading ? 'loading' : ''}`}
           >
             <div className="label">
               {suggestionLoading ? 'loading suggestions...' : 'sentence based suggestion'}
