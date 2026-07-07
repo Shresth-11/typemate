@@ -219,7 +219,7 @@ const getSuggestions = (sentences, text, caretIdx, mode) => {
   }));
 };
 
-function Textbox() {
+function Textbox({ loading }) {
   const [activeFormats, setActiveFormats] = useState({});
   const savedSelection = useRef(null);
   const editorRef = useRef(null);
@@ -449,13 +449,24 @@ function Textbox() {
   const totalKeystrokes = charsTyped + charsSaved;
   const savingsPercentage = totalKeystrokes > 0 ? Math.round((charsSaved / totalKeystrokes) * 100) : 0;
 
+  const containerStyle = {
+    width: '96%',
+    height: '94%',
+    transform: loading ? 'scale(0)' : 'scale(1)',
+    borderRadius: loading ? '999px' : '20px',
+    opacity: loading ? 0 : 1,
+    boxShadow: loading ? 'none' : '0 0 30px 2px rgba(0,0,0,0.4)',
+    backgroundColor: loading ? 'transparent' : '#fff',
+    transition: 'all 0.28s ease-out, border-radius 0.05s ease-out',
+  };
+
   return (
     <>
       <style>
         {`
-          .editor-content h1 { font-size: 2.25em; font-weight: bold; margin-bottom: 0.5em; margin-top: 0.5em; line-height: 1.2; }
-          .editor-content h2 { font-size: 1.75em; font-weight: bold; margin-bottom: 0.5em; margin-top: 0.5em; line-height: 1.3; }
-          .editor-content h3 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.5em; margin-top: 0.5em; line-height: 1.4; }
+          .editor-content h1 { font-size: 2.25em; font-weight: bold; margin-bottom: 0.15em; margin-top: 0.15em; line-height: 1.1; }
+          .editor-content h2 { font-size: 1.75em; font-weight: bold; margin-bottom: 0.15em; margin-top: 0.15em; line-height: 1.1; }
+          .editor-content h3 { font-size: 1.5em; font-weight: bold; margin-bottom: 0.15em; margin-top: 0.15em; line-height: 1.2; }
           .editor-content h5 { font-size: 0.875em; font-weight: bold; margin-bottom: 0.5em; margin-top: 0.5em; line-height: 1.5; color: #6b7280; text-transform: uppercase; }
           .editor-content p { margin-bottom: 0.75em; }
           .editor-content ul { list-style-type: disc; padding-left: 1.75em; margin-bottom: 1em; }
@@ -596,7 +607,10 @@ function Textbox() {
         `}
       </style>
       <div className="w-full h-full flex flex-col items-center justify-center relative flex-1 min-h-0">
-        <div className="w-full max-w-[1500px] flex-1 min-h-0 flex flex-col bg-white rounded-2xl md:rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] relative px-3 md:px-5 pb-3 md:pb-5 pt-2 md:pt-3">
+        <div 
+          className="flex-1 min-h-0 flex flex-col relative px-3 md:px-5 pb-3 md:pb-5 pt-2 md:pt-3 max-w-[1600px] select-none"
+          style={containerStyle}
+        >
  
           {/* Toolbar Top Bar */}
           <div
@@ -605,7 +619,8 @@ function Textbox() {
             aria-label="Text formatting toolbar"
             onKeyDown={handleToolbarKeyDown}
             onFocus={handleToolbarFocus}
-            className="flex flex-wrap items-center justify-center gap-y-1.5 md:gap-y-2 gap-x-1 md:gap-x-1.5 py-2 md:py-3 text-gray-600 text-xs md:text-[13px] border-b border-transparent"
+            className="flex flex-wrap items-center justify-center gap-y-1 md:gap-y-1.5 gap-x-0.5 md:gap-x-1 text-gray-600 text-xs md:text-[13px] border-b border-transparent"
+            style={{ padding: '25px 10px 15px 10px' }}
           >
             {/* Font Selectors */}
             <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200 h-7 md:h-8">
@@ -730,10 +745,13 @@ function Textbox() {
           </div>
 
           {/* Editor Boundary Area */}
-          <div className="flex-1 min-h-0 w-full border-[2px] border-gray-100 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-[inset_0_2px_12px_rgba(0,0,0,0.03)] outline-none overflow-y-auto mb-16 md:mb-4 bg-white focus-within:border-gray-200 transition-colors">
+          <div 
+            className="flex-1 min-h-0 w-full rounded-2xl p-4 md:p-6 outline-none overflow-y-auto mb-16 md:mb-6 bg-white transition-shadow"
+            style={{ boxShadow: 'inset 0 0 10px 0 rgba(0,0,0,0.4)', border: 'none' }}
+          >
             <div
               ref={editorRef}
-              className="editor-content w-full h-full outline-none font-[Quicksand] text-gray-800 text-[15px] leading-relaxed relative z-0"
+              className="editor-content w-full h-full outline-none font-[Quicksand] text-black text-[18px] font-[500] leading-relaxed relative z-0 select-text"
               contentEditable
               suppressContentEditableWarning
               onKeyDown={handleEditorKeyDown}
@@ -769,30 +787,28 @@ function Textbox() {
             </div>
           )}
 
-          {/* Footer Area with suggestion mode flip toggle & stats */}
-          <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 w-[90%] flex justify-center md:justify-between items-center px-4 md:px-8 perspective-1000">
-            <div
-              onClick={() => {
-                if (!suggestionLoading) {
-                  setSuggestionMode(prev => prev === 'sentence' ? 'word' : 'sentence');
-                }
-              }}
-              className={`suggestionToggle mx-auto md:mx-0 ${suggestionMode === 'word' ? 'flip' : ''} ${suggestionLoading ? 'loading' : ''}`}
-            >
-              <div className="label">
-                {suggestionLoading ? 'loading suggestions...' : 'sentence based suggestion'}
-              </div>
-              <div className="label">
-                word based suggestion
-              </div>
+          {/* Centered Suggestion Mode Card Toggle */}
+          <div
+            onClick={() => {
+              if (!suggestionLoading) {
+                setSuggestionMode(prev => prev === 'sentence' ? 'word' : 'sentence');
+              }
+            }}
+            className={`suggestionToggle absolute bottom-[-18px] left-1/2 transform -translate-x-1/2 z-30 ${suggestionMode === 'word' ? 'flip' : ''} ${suggestionLoading ? 'loading' : ''}`}
+          >
+            <div className="label">
+              {suggestionLoading ? 'loading suggestions...' : 'sentence based suggestion'}
             </div>
+            <div className="label">
+              word based suggestion
+            </div>
+          </div>
 
-            {/* Keystroke savings stats badge (always shown next to it or right-aligned on desktop) */}
-            <div className="hidden md:flex items-center gap-1.5 bg-white border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-3.5 py-1.5 rounded-full text-xs font-semibold text-gray-600 select-none">
-              <span className={`w-1.5 h-1.5 rounded-full ${savingsPercentage > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
-              <span>⚡ {savingsPercentage}% fewer keystrokes this session</span>
-              <span className="text-[10px] text-gray-400">({charsSaved} saved / {charsTyped} typed)</span>
-            </div>
+          {/* Keystroke savings stats badge in the bottom-right */}
+          <div className="absolute bottom-5 right-5 z-30 hidden md:flex items-center gap-1.5 bg-white border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-3.5 py-1.5 rounded-full text-xs font-semibold text-gray-600 select-none">
+            <span className={`w-1.5 h-1.5 rounded-full ${savingsPercentage > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
+            <span>⚡ {savingsPercentage}% fewer keystrokes this session</span>
+            <span className="text-[10px] text-gray-400">({charsSaved} saved / {charsTyped} typed)</span>
           </div>
 
         </div>
