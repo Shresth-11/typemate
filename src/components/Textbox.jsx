@@ -16,20 +16,45 @@ const SVG = ({ path, viewBox = "0 0 24 24" }) => (
   </svg>
 );
 
-const ToolbarDivider = () => <div className="w-[1px] h-5 bg-gray-200 mx-1"></div>;
+const ToolbarDivider = () => <div role="separator" aria-orientation="vertical" className="w-[1px] h-5 bg-gray-200 mx-1"></div>;
 
-const Icon = ({ children, onClick }) => (
-  <button
-    onMouseDown={(e) => { e.preventDefault(); onClick?.(e); }}
-    className="text-gray-500 hover:text-gray-800 hover:bg-gray-100 h-8 w-8 rounded flex items-center justify-center transition-colors"
-  >
-    {children}
-  </button>
-);
+const Icon = ({ children, onClick, editorRef, ...props }) => {
+  const execute = (e) => {
+    if (editorRef?.current) {
+      editorRef.current.focus();
+    }
+    onClick?.(e);
+  };
 
-const ActionIcon = ({ children, command, arg = null, isActive = false }) => {
-  const handleAction = (e) => {
-    e.preventDefault(); // Prevent losing focus from the editor
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    execute(e);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      execute(e);
+    }
+  };
+
+  return (
+    <button
+      onMouseDown={handleMouseDown}
+      onKeyDown={handleKeyDown}
+      className="text-gray-500 hover:text-gray-800 hover:bg-gray-100 h-8 w-8 rounded flex items-center justify-center transition-colors focus-ring"
+      {...props}
+    >
+      {children}
+    </button>
+  );
+};
+
+const ActionIcon = ({ children, command, arg = null, isActive = false, editorRef, ...props }) => {
+  const execute = () => {
+    if (editorRef?.current) {
+      editorRef.current.focus();
+    }
     if (command === 'createLink') {
       const url = prompt('Enter the link URL:', 'https://');
       if (url) {
@@ -45,14 +70,28 @@ const ActionIcon = ({ children, command, arg = null, isActive = false }) => {
     }
   };
 
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    execute();
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      execute();
+    }
+  };
+
   return (
     <button
-      onMouseDown={handleAction}
-      className={`h-8 w-8 rounded flex items-center justify-center transition-colors ${isActive
+      onMouseDown={handleMouseDown}
+      onKeyDown={handleKeyDown}
+      className={`h-8 w-8 rounded flex items-center justify-center transition-colors focus-ring ${isActive
           ? "bg-blue-100 text-blue-700 shadow-sm"
           : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
         }`}
       title={command}
+      {...props}
     >
       {children}
     </button>
@@ -94,6 +133,13 @@ function Textbox() {
   const [activeFormats, setActiveFormats] = useState({});
   const [isSuggestionOpen, setIsSuggestionOpen] = useState(false);
   const savedSelection = useRef(null);
+  const editorRef = useRef(null);
+  const toolbarRef = useRef(null);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+
+  // Keystroke savings tracking
+  const [charsSaved, setCharsSaved] = useState(0);
+  const [charsTyped, setCharsTyped] = useState(0);
 
   const saveSelection = () => {
     const selection = window.getSelection();
@@ -109,6 +155,9 @@ function Textbox() {
       selection.addRange(savedSelection.current);
     }
     document.execCommand('foreColor', false, e.target.value);
+    if (editorRef.current) {
+      editorRef.current.focus();
+    }
   };
 
   const removeGhost = () => {
@@ -157,8 +206,16 @@ function Textbox() {
       const textToInsert = ghost.textContent;
       removeGhost();
       document.execCommand('insertText', false, textToInsert);
-    } else if (ghost && e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt') {
-      removeGhost();
+      setCharsSaved(prev => prev + textToInsert.length);
+    } else {
+      if (ghost && e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt') {
+        removeGhost();
+      }
+      const isCharacterKey = e.key.length === 1 || e.key === 'Enter';
+      const isModifier = e.ctrlKey || e.metaKey || e.altKey;
+      if (isCharacterKey && !isModifier) {
+        setCharsTyped(prev => prev + 1);
+      }
     }
   };
 
@@ -176,6 +233,8 @@ function Textbox() {
         insertUnorderedList: document.queryCommandState('insertUnorderedList'),
         insertOrderedList: document.queryCommandState('insertOrderedList'),
         foreColor: document.queryCommandValue('foreColor'),
+        blockquote: document.queryCommandValue('formatBlock') === 'blockquote',
+        pre: document.queryCommandValue('formatBlock') === 'pre',
       });
     };
 
@@ -202,6 +261,54 @@ function Textbox() {
     }
   };
 
+  const getToolbarElements = () => {
+    if (!toolbarRef.current) return [];
+    return Array.from(
+      toolbarRef.current.querySelectorAll(
+        'select, button, input[type="color"]'
+      )
+    );
+  };
+
+  const handleToolbarKeyDown = (e) => {
+    const elements = getToolbarElements();
+    if (elements.length === 0) return;
+
+    let newIndex = focusedIndex;
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      newIndex = (focusedIndex + 1) % elements.length;
+      setFocusedIndex(newIndex);
+      elements[newIndex]?.focus();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      newIndex = (focusedIndex - 1 + elements.length) % elements.length;
+      setFocusedIndex(newIndex);
+      elements[newIndex]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      newIndex = 0;
+      setFocusedIndex(newIndex);
+      elements[newIndex]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      newIndex = elements.length - 1;
+      setFocusedIndex(newIndex);
+      elements[newIndex]?.focus();
+    }
+  };
+
+  const handleToolbarFocus = (e) => {
+    const elements = getToolbarElements();
+    const index = elements.indexOf(e.target);
+    if (index !== -1 && index !== focusedIndex) {
+      setFocusedIndex(index);
+    }
+  };
+
+  const totalKeystrokes = charsTyped + charsSaved;
+  const savingsPercentage = totalKeystrokes > 0 ? Math.round((charsSaved / totalKeystrokes) * 100) : 0;
+
   return (
     <>
       <style>
@@ -223,21 +330,47 @@ function Textbox() {
           .editor-content font[face="Lato"], .editor-content [style*="font-family: Lato"], .editor-content [style*="font-family: 'Lato'"], .editor-content [style*='font-family: "Lato"'] { font-family: 'Lato', sans-serif !important; }
           .editor-content font[face="Montserrat"], .editor-content [style*="font-family: Montserrat"], .editor-content [style*="font-family: 'Montserrat'"], .editor-content [style*='font-family: "Montserrat"'] { font-family: 'Montserrat', sans-serif !important; }
           .editor-content font[face="Playfair Display"], .editor-content [style*="font-family: Playfair Display"], .editor-content [style*="font-family: 'Playfair Display'"], .editor-content [style*='font-family: "Playfair Display"'] { font-family: 'Playfair Display', serif !important; }
+          
+          .focus-ring:focus-visible {
+            outline: 2px solid #8b3eff !important;
+            outline-offset: 2px !important;
+            box-shadow: 0 0 0 2px rgba(139, 62, 255, 0.2) !important;
+            border-radius: 4px;
+          }
+          .color-picker-container:has(input:focus-visible) {
+            outline: 2px solid #8b3eff !important;
+            outline-offset: 2px !important;
+            box-shadow: 0 0 0 2px rgba(139, 62, 255, 0.2) !important;
+            border-radius: 4px;
+          }
         `}
       </style>
-      <div className="w-full h-full flex flex-col items-ceq nter justify-center relative flex-1 min-h-0">
+      <div className="w-full h-full flex flex-col items-center justify-center relative flex-1 min-h-0">
         <div className="w-full max-w-[1500px] flex-1 min-h-0 flex flex-col bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] relative px-5 pb-5 pt-3">
-
+ 
           {/* Toolbar Top Bar */}
-          <div className="flex flex-wrap items-center justify-center gap-y-2 gap-x-1.5 py-3 text-gray-600 text-[13px] border-b border-transparent">
+          <div
+            ref={toolbarRef}
+            role="toolbar"
+            aria-label="Text formatting toolbar"
+            onKeyDown={handleToolbarKeyDown}
+            onFocus={handleToolbarFocus}
+            className="flex flex-wrap items-center justify-center gap-y-2 gap-x-1.5 py-3 text-gray-600 text-[13px] border-b border-transparent"
+          >
             {/* Font Selectors */}
             <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200">
               <select
-                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-2 pr-6 py-1.5 appearance-none w-full h-full z-10"
+                tabIndex={focusedIndex === 0 ? 0 : -1}
+                aria-label="Font family"
+                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-2 pr-6 py-1.5 appearance-none w-full h-full z-10 focus-ring"
                 style={{ fontFamily: 'inherit' }}
                 onChange={(e) => {
+                  const val = e.target.value;
                   e.target.blur();
-                  document.execCommand('fontName', false, e.target.value);
+                  if (editorRef.current) {
+                    editorRef.current.focus();
+                  }
+                  document.execCommand('fontName', false, val);
                 }}
                 defaultValue="Quicksand"
               >
@@ -255,10 +388,16 @@ function Textbox() {
 
             <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200">
               <select
-                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-2 pr-6 py-1.5 appearance-none w-full h-full z-10"
+                tabIndex={focusedIndex === 1 ? 0 : -1}
+                aria-label="Text style"
+                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-2 pr-6 py-1.5 appearance-none w-full h-full z-10 focus-ring"
                 onChange={(e) => {
+                  const val = e.target.value;
                   e.target.blur();
-                  document.execCommand('formatBlock', false, e.target.value);
+                  if (editorRef.current) {
+                    editorRef.current.focus();
+                  }
+                  document.execCommand('formatBlock', false, val);
                 }}
                 defaultValue="P"
               >
@@ -276,43 +415,43 @@ function Textbox() {
             <ToolbarDivider />
 
             {/* Formatting */}
-            <ActionIcon command="bold" isActive={activeFormats.bold}><span className="font-sans font-bold text-[15px]">B</span></ActionIcon>
-            <ActionIcon command="italic" isActive={activeFormats.italic}><span className="font-serif italic text-[15px]">I</span></ActionIcon>
-            <ActionIcon command="underline" isActive={activeFormats.underline}><span className="font-serif underline text-[15px]">U</span></ActionIcon>
-            <ActionIcon command="strikeThrough" isActive={activeFormats.strikeThrough}><span className="font-serif line-through text-[15px]">S</span></ActionIcon>
+            <ActionIcon command="bold" isActive={activeFormats.bold} editorRef={editorRef} tabIndex={focusedIndex === 2 ? 0 : -1} aria-label="Bold" aria-pressed={!!activeFormats.bold}><span className="font-sans font-bold text-[15px]">B</span></ActionIcon>
+            <ActionIcon command="italic" isActive={activeFormats.italic} editorRef={editorRef} tabIndex={focusedIndex === 3 ? 0 : -1} aria-label="Italic" aria-pressed={!!activeFormats.italic}><span className="font-serif italic text-[15px]">I</span></ActionIcon>
+            <ActionIcon command="underline" isActive={activeFormats.underline} editorRef={editorRef} tabIndex={focusedIndex === 4 ? 0 : -1} aria-label="Underline" aria-pressed={!!activeFormats.underline}><span className="font-serif underline text-[15px]">U</span></ActionIcon>
+            <ActionIcon command="strikeThrough" isActive={activeFormats.strikeThrough} editorRef={editorRef} tabIndex={focusedIndex === 5 ? 0 : -1} aria-label="Strikethrough" aria-pressed={!!activeFormats.strikeThrough}><span className="font-serif line-through text-[15px]">S</span></ActionIcon>
 
             <ToolbarDivider />
 
             {/* Alignment */}
-            <ActionIcon command="justifyLeft" isActive={activeFormats.justifyLeft}><AlignLeft /></ActionIcon>
-            <ActionIcon command="justifyCenter" isActive={activeFormats.justifyCenter}><AlignCenter /></ActionIcon>
-            <ActionIcon command="justifyRight" isActive={activeFormats.justifyRight}><AlignRight /></ActionIcon>
-            <ActionIcon command="justifyFull" isActive={activeFormats.justifyFull}><AlignJustify /></ActionIcon>
+            <ActionIcon command="justifyLeft" isActive={activeFormats.justifyLeft} editorRef={editorRef} tabIndex={focusedIndex === 6 ? 0 : -1} aria-label="Align left" aria-pressed={!!activeFormats.justifyLeft}><AlignLeft /></ActionIcon>
+            <ActionIcon command="justifyCenter" isActive={activeFormats.justifyCenter} editorRef={editorRef} tabIndex={focusedIndex === 7 ? 0 : -1} aria-label="Align center" aria-pressed={!!activeFormats.justifyCenter}><AlignCenter /></ActionIcon>
+            <ActionIcon command="justifyRight" isActive={activeFormats.justifyRight} editorRef={editorRef} tabIndex={focusedIndex === 8 ? 0 : -1} aria-label="Align right" aria-pressed={!!activeFormats.justifyRight}><AlignRight /></ActionIcon>
+            <ActionIcon command="justifyFull" isActive={activeFormats.justifyFull} editorRef={editorRef} tabIndex={focusedIndex === 9 ? 0 : -1} aria-label="Align justify" aria-pressed={!!activeFormats.justifyFull}><AlignJustify /></ActionIcon>
 
             <ToolbarDivider />
 
             {/* Special */}
-            <ActionIcon command="formatBlock" arg="blockquote"><span className="font-serif font-bold text-[20px] leading-none mb-1">"</span></ActionIcon>
-            <ActionIcon command="formatBlock" arg="pre"><span className="font-mono text-[12px] font-bold">{"</>"}</span></ActionIcon>
+            <ActionIcon command="formatBlock" arg="blockquote" isActive={activeFormats.blockquote} editorRef={editorRef} tabIndex={focusedIndex === 10 ? 0 : -1} aria-label="Quote" aria-pressed={!!activeFormats.blockquote}><span className="font-serif font-bold text-[20px] leading-none mb-1">"</span></ActionIcon>
+            <ActionIcon command="formatBlock" arg="pre" isActive={activeFormats.pre} editorRef={editorRef} tabIndex={focusedIndex === 11 ? 0 : -1} aria-label="Code block" aria-pressed={!!activeFormats.pre}><span className="font-mono text-[12px] font-bold">{"</>"}</span></ActionIcon>
 
             <ToolbarDivider />
 
             {/* Lists */}
-            <ActionIcon command="insertUnorderedList" isActive={activeFormats.insertUnorderedList}><ListBullet /></ActionIcon>
-            <ActionIcon command="insertOrderedList" isActive={activeFormats.insertOrderedList}><ListNumber /></ActionIcon>
-            <Icon onClick={handleChecklist}><Checklist /></Icon>
+            <ActionIcon command="insertUnorderedList" isActive={activeFormats.insertUnorderedList} editorRef={editorRef} tabIndex={focusedIndex === 12 ? 0 : -1} aria-label="Bullet list" aria-pressed={!!activeFormats.insertUnorderedList}><ListBullet /></ActionIcon>
+            <ActionIcon command="insertOrderedList" isActive={activeFormats.insertOrderedList} editorRef={editorRef} tabIndex={focusedIndex === 13 ? 0 : -1} aria-label="Numbered list" aria-pressed={!!activeFormats.insertOrderedList}><ListNumber /></ActionIcon>
+            <Icon onClick={handleChecklist} editorRef={editorRef} tabIndex={focusedIndex === 14 ? 0 : -1} aria-label="Checklist"><Checklist /></Icon>
 
             <ToolbarDivider />
 
             {/* Indentation */}
-            <ActionIcon command="outdent"><IndentDecrease /></ActionIcon>
-            <ActionIcon command="indent"><IndentIncrease /></ActionIcon>
+            <ActionIcon command="outdent" editorRef={editorRef} tabIndex={focusedIndex === 15 ? 0 : -1} aria-label="Decrease indent"><IndentDecrease /></ActionIcon>
+            <ActionIcon command="indent" editorRef={editorRef} tabIndex={focusedIndex === 16 ? 0 : -1} aria-label="Increase indent"><IndentIncrease /></ActionIcon>
 
             <ToolbarDivider />
 
             {/* Colors and Media */}
             <div
-              className="flex flex-col items-center justify-center h-8 w-8 hover:bg-gray-100 rounded transition-colors relative overflow-hidden group"
+              className="flex flex-col items-center justify-center h-8 w-8 hover:bg-gray-100 rounded transition-colors relative overflow-hidden group color-picker-container"
               onMouseDown={saveSelection}
             >
               <span className="font-serif font-bold text-[15px] leading-none relative z-10 pointer-events-none opacity-70 group-hover:opacity-100">A</span>
@@ -324,14 +463,16 @@ function Textbox() {
                 type="color"
                 title="Text color"
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                tabIndex={focusedIndex === 17 ? 0 : -1}
+                aria-label="Text color"
                 onInput={handleColorChange}
                 onChange={handleColorChange}
               />
             </div>
-            <ActionIcon command="createLink"><LinkIcon /></ActionIcon>
-            <ActionIcon command="insertImage"><ImageIcon /></ActionIcon>
-            <Icon onClick={handleVideo}><VideoIcon /></Icon>
-            <ActionIcon command="removeFormat">
+            <ActionIcon command="createLink" editorRef={editorRef} tabIndex={focusedIndex === 18 ? 0 : -1} aria-label="Insert link"><LinkIcon /></ActionIcon>
+            <ActionIcon command="insertImage" editorRef={editorRef} tabIndex={focusedIndex === 19 ? 0 : -1} aria-label="Insert image"><ImageIcon /></ActionIcon>
+            <Icon onClick={handleVideo} editorRef={editorRef} tabIndex={focusedIndex === 20 ? 0 : -1} aria-label="Insert video"><VideoIcon /></Icon>
+            <ActionIcon command="removeFormat" editorRef={editorRef} tabIndex={focusedIndex === 21 ? 0 : -1} aria-label="Clear formatting">
               <div className="flex items-start font-serif font-bold text-[14px]">
                 T<span className="text-[10px] mt-1 ml-[1px]">x</span>
               </div>
@@ -341,6 +482,7 @@ function Textbox() {
           {/* Editor Boundary Area */}
           <div className="flex-1 min-h-0 w-full border-[2px] border-gray-100 rounded-2xl p-6 shadow-[inset_0_2px_12px_rgba(0,0,0,0.03)] outline-none overflow-y-auto mb-4 bg-white focus-within:border-gray-200 transition-colors">
             <div
+              ref={editorRef}
               className="editor-content w-full h-full outline-none font-[Quicksand] text-gray-800 text-[15px] leading-relaxed relative z-0"
               contentEditable
               suppressContentEditableWarning
@@ -354,7 +496,14 @@ function Textbox() {
           </div>
 
           {/* Floating Action Button overlapping bottom container line */}
-          <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 z-10 flex flex-col items-center">
+          <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+            {/* Keystroke savings badge */}
+            <div className="bg-white border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-3 py-1 rounded-full text-xs font-semibold text-gray-600 flex items-center gap-1.5 transition-all mb-1 select-none">
+              <span className={`w-1.5 h-1.5 rounded-full ${savingsPercentage > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
+              <span>⚡ {savingsPercentage}% fewer keystrokes this session</span>
+              <span className="text-[10px] text-gray-400">({charsSaved} saved / {charsTyped} typed)</span>
+            </div>
+
             {isSuggestionOpen && (
               <div className="absolute bottom-full mb-3 bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-gray-100 p-2 w-[280px] flex flex-col gap-1 z-20">
                 {["Thank you for your time!", "Looking forward to hearing from you.", "Please let me know if you have any questions."].map((suggestion, idx) => (
