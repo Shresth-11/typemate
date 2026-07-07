@@ -238,6 +238,11 @@ function Textbox({ loading }) {
   const [charsSaved, setCharsSaved] = useState(0);
   const [charsTyped, setCharsTyped] = useState(0);
 
+  // Expose statistics programmatically for audits
+  useEffect(() => {
+    window.typemateStats = { charsSaved, charsTyped };
+  }, [charsSaved, charsTyped]);
+
   // Load sentences dictionary
   useEffect(() => {
     fetch('/sentences.json')
@@ -446,8 +451,6 @@ function Textbox({ loading }) {
     }
   };
 
-  const totalKeystrokes = charsTyped + charsSaved;
-  const savingsPercentage = totalKeystrokes > 0 ? Math.round((charsSaved / totalKeystrokes) * 100) : 0;
 
   const containerStyle = {
     width: '96%',
@@ -498,7 +501,7 @@ function Textbox({ loading }) {
           /* Suggestion toggle animations */
           .suggestionToggle {
             position: absolute;
-            bottom: -18px;
+            bottom: 15px;
             left: 50%;
             width: 260px;
             height: 36px;
@@ -749,7 +752,7 @@ function Textbox({ loading }) {
 
           {/* Editor Boundary Area */}
           <div 
-            className="flex-1 min-h-0 w-full rounded-2xl p-4 md:p-6 outline-none overflow-y-auto mb-16 md:mb-6 bg-white transition-shadow"
+            className="flex-1 min-h-0 w-full rounded-2xl p-4 md:p-6 outline-none overflow-y-auto mb-16 md:mb-16 bg-white transition-shadow"
             style={{ boxShadow: 'inset 0 0 10px 0 rgba(0,0,0,0.4)', border: 'none' }}
           >
             <div
@@ -805,13 +808,6 @@ function Textbox({ loading }) {
             <div className="label">
               word based suggestion
             </div>
-          </div>
-
-          {/* Keystroke savings stats badge in the bottom-right */}
-          <div className="absolute bottom-5 right-5 z-30 hidden md:flex items-center gap-1.5 bg-white border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-3.5 py-1.5 rounded-full text-xs font-semibold text-gray-600 select-none">
-            <span className={`w-1.5 h-1.5 rounded-full ${savingsPercentage > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
-            <span>⚡ {savingsPercentage}% fewer keystrokes this session</span>
-            <span className="text-[10px] text-gray-400">({charsSaved} saved / {charsTyped} typed)</span>
           </div>
 
         </div>
