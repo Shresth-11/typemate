@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 const SVG = ({ path, viewBox = "0 0 24 24" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    width="16"
-    height="16"
+    className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-600 group-hover:text-gray-800"
     viewBox={viewBox}
     fill="none"
     stroke="currentColor"
@@ -16,7 +15,7 @@ const SVG = ({ path, viewBox = "0 0 24 24" }) => (
   </svg>
 );
 
-const ToolbarDivider = () => <div role="separator" aria-orientation="vertical" className="w-[1px] h-5 bg-gray-200 mx-1"></div>;
+const ToolbarDivider = () => <div role="separator" aria-orientation="vertical" className="w-[1px] h-4 md:h-5 bg-gray-200 mx-0.5 md:mx-1"></div>;
 
 const Icon = ({ children, onClick, editorRef, ...props }) => {
   const execute = (e) => {
@@ -42,7 +41,7 @@ const Icon = ({ children, onClick, editorRef, ...props }) => {
     <button
       onMouseDown={handleMouseDown}
       onKeyDown={handleKeyDown}
-      className="text-gray-500 hover:text-gray-800 hover:bg-gray-100 h-8 w-8 rounded flex items-center justify-center transition-colors focus-ring"
+      className="text-gray-500 hover:text-gray-800 hover:bg-gray-100 h-7 w-7 md:h-8 md:w-8 rounded flex items-center justify-center transition-colors focus-ring"
       {...props}
     >
       {children}
@@ -86,7 +85,7 @@ const ActionIcon = ({ children, command, arg = null, isActive = false, editorRef
     <button
       onMouseDown={handleMouseDown}
       onKeyDown={handleKeyDown}
-      className={`h-8 w-8 rounded flex items-center justify-center transition-colors focus-ring ${isActive
+      className={`h-7 w-7 md:h-8 md:w-8 rounded flex items-center justify-center transition-colors focus-ring ${isActive
           ? "bg-blue-100 text-blue-700 shadow-sm"
           : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
         }`}
@@ -99,7 +98,7 @@ const ActionIcon = ({ children, command, arg = null, isActive = false, editorRef
 };
 
 const DropdownIcon = () => (
-  <svg className="w-3 h-3 ml-0.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg className="w-2.5 h-2.5 md:w-3 md:h-3 ml-0.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <polyline strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points="6 9 12 15 18 9" />
   </svg>
 );
@@ -118,28 +117,140 @@ const LinkIcon = () => <SVG path={<><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 
 const ImageIcon = () => <SVG path={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></>} />;
 const VideoIcon = () => <SVG path={<><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></>} />;
 
-const SMART_COMPOSE_DICT = {
-  "Thank you ": "for your time!",
-  "Thank you": " for your time!",
-  "Thankyou ": "for your time!",
-  "Thankyou": " for your time!",
-  "Looking ": "forward to hearing from you.",
-  "Looking": " forward to hearing from you.",
-  "Please let me know if ": "you have any questions.",
-  "Please let me know if": " you have any questions."
+const b = [" ", "\u00a0", "\t", "\n", "\r", "\f", "\v"];
+const k = [".", ",", "!", "?", ";", ")", "]", "}"];
+
+const getCaretIndex = (element) => {
+  let position = 0;
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    const preCaretRange = range.cloneRange();
+    preCaretRange.selectNodeContents(element);
+    preCaretRange.setEnd(range.endContainer, range.endOffset);
+    position = preCaretRange.toString().length;
+  }
+  return position;
+};
+
+const getCaretRect = () => {
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0).cloneRange();
+    const rects = range.getClientRects();
+    if (rects.length > 0) {
+      return rects[0];
+    }
+    // Fallback
+    const span = document.createElement("span");
+    span.appendChild(document.createTextNode("\u200b"));
+    range.insertNode(span);
+    const rect = span.getBoundingClientRect();
+    span.remove();
+    return rect;
+  }
+  return null;
+};
+
+const getSuggestions = (sentences, text, caretIdx, mode) => {
+  const normalizedText = text.replace(/\u00a0/g, " ");
+  if (!normalizedText || caretIdx === 0) return [];
+  
+  // Check if the current caret position is adjacent to a whitespace
+  const charBefore = normalizedText.charAt(caretIdx - 1);
+  const charAt = normalizedText.charAt(caretIdx);
+  if (!b.includes(charBefore) && !b.includes(charAt)) {
+    return [];
+  }
+
+  let startIdx = 0;
+  let prefix = "";
+
+  if (mode === 'sentence') {
+    // Find the last sentence separator before caret
+    for (let i = caretIdx - 1; i >= 0; i--) {
+      if (k.includes(normalizedText.charAt(i))) {
+        startIdx = i + 1;
+        break;
+      }
+    }
+    prefix = normalizedText.substring(startIdx, caretIdx).toLowerCase().trimStart();
+  } else {
+    // Word mode
+    if (b.includes(charBefore)) {
+      return [];
+    }
+    for (let i = caretIdx - 1; i >= 0; i--) {
+      if (normalizedText.charAt(i) === ' ' || b.includes(normalizedText.charAt(i))) {
+        startIdx = i + 1;
+        break;
+      }
+    }
+    prefix = normalizedText.substring(startIdx, caretIdx).toLowerCase().trim();
+  }
+
+  if (!prefix) return [];
+
+  const matches = new Set();
+  // 1. Matches starting with prefix
+  for (const item of sentences) {
+    if (item.toLowerCase().startsWith(prefix) && item.substring(prefix.length).length >= 10) {
+      matches.add(item);
+    }
+  }
+  // 2. Fallback: contains prefix
+  if (matches.size < 5) {
+    for (const item of sentences) {
+      const idx = item.toLowerCase().indexOf(prefix);
+      if (idx !== -1) {
+        const sub = item.substring(idx);
+        if (sub.substring(prefix.length).length >= 10) {
+          matches.add(sub);
+        }
+      }
+    }
+  }
+
+  let results = Array.from(matches);
+  results.sort((e, t) => e.length - t.length);
+  return results.slice(0, 5).map(e => ({
+    display: e,
+    value: e.substring(prefix.length)
+  }));
 };
 
 function Textbox() {
   const [activeFormats, setActiveFormats] = useState({});
-  const [isSuggestionOpen, setIsSuggestionOpen] = useState(false);
   const savedSelection = useRef(null);
   const editorRef = useRef(null);
   const toolbarRef = useRef(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
 
+  // Suggestions state
+  const [sentences, setSentences] = useState([]);
+  const [suggestionLoading, setSuggestionLoading] = useState(true);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionMode, setSuggestionMode] = useState("sentence");
+  const [suggestionRect, setSuggestionRect] = useState({ top: "0px", left: "0px" });
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+
   // Keystroke savings tracking
   const [charsSaved, setCharsSaved] = useState(0);
   const [charsTyped, setCharsTyped] = useState(0);
+
+  // Load sentences dictionary
+  useEffect(() => {
+    fetch('/sentences.json')
+      .then(res => res.json())
+      .then(data => {
+        setSentences(data);
+        setSuggestionLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load sentences.json", err);
+        setSuggestionLoading(false);
+      });
+  }, []);
 
   const saveSelection = () => {
     const selection = window.getSelection();
@@ -160,64 +271,94 @@ function Textbox() {
     }
   };
 
-  const removeGhost = () => {
-    const ghost = document.getElementById('smart-compose-ghost');
-    if (ghost) {
-      ghost.remove();
-    }
-  };
-
-  const handleEditorInput = () => {
-    removeGhost();
-    setTimeout(() => {
-      const selection = window.getSelection();
-      if (!selection || !selection.isCollapsed || !selection.focusNode) return;
-
-      const textNode = selection.focusNode;
-      if (textNode.nodeType !== Node.TEXT_NODE) return;
-
-      const textBeforeCaret = textNode.textContent.slice(0, selection.focusOffset).replace(/\u00A0/g, ' ');
-
-      for (const [prefix, suffix] of Object.entries(SMART_COMPOSE_DICT)) {
-        if (textBeforeCaret.toLowerCase().endsWith(prefix.toLowerCase())) {
-          const ghostSpan = document.createElement("span");
-          ghostSpan.id = "smart-compose-ghost";
-          ghostSpan.contentEditable = "false";
-          ghostSpan.className = "text-[#9ca3af] select-none pointer-events-none";
-          ghostSpan.textContent = suffix;
-          
-          const range = selection.getRangeAt(0);
-          range.insertNode(ghostSpan);
-          range.setStartBefore(ghostSpan);
-          range.collapse(true);
-          
-          selection.removeAllRanges();
-          selection.addRange(range);
-          break;
-        }
+  const updateSuggestions = useCallback(() => {
+    if (!editorRef.current) return;
+    const text = editorRef.current.innerText || editorRef.current.textContent || "";
+    const caretIdx = getCaretIndex(editorRef.current);
+    
+    // Position the overlay near caret
+    const rect = getCaretRect();
+    if (rect) {
+      let left = rect.left;
+      if (left + 250 > window.innerWidth) {
+        left = window.innerWidth - 270;
       }
-    }, 0);
+      left = Math.max(10, left);
+
+      setSuggestionRect({
+        top: `${rect.bottom + window.scrollY + 4}px`,
+        left: `${left + window.scrollX}px`
+      });
+    }
+
+    const matched = getSuggestions(sentences, text, caretIdx, suggestionMode);
+    setSuggestions(matched);
+    setActiveSuggestionIndex(0);
+  }, [sentences, suggestionMode]);
+
+  const acceptSuggestion = (suggestionValue) => {
+    if (!suggestionValue) return;
+
+    if (editorRef.current) {
+      editorRef.current.focus();
+    }
+    document.execCommand('insertText', false, suggestionValue);
+    setCharsSaved(prev => prev + suggestionValue.length);
+    setSuggestions([]);
+    setActiveSuggestionIndex(0);
   };
 
+  // Keyboard autocomplete controls in contentEditable
   const handleEditorKeyDown = (e) => {
-    const ghost = document.getElementById('smart-compose-ghost');
-    if (ghost && (e.key === 'Tab' || e.key === 'ArrowRight')) {
-      e.preventDefault();
-      const textToInsert = ghost.textContent;
-      removeGhost();
-      document.execCommand('insertText', false, textToInsert);
-      setCharsSaved(prev => prev + textToInsert.length);
-    } else {
-      if (ghost && e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt') {
-        removeGhost();
+    if (suggestions.length > 0) {
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const activeSug = suggestions[activeSuggestionIndex];
+        if (activeSug) {
+          acceptSuggestion(activeSug.value);
+        }
+        return;
       }
-      const isCharacterKey = e.key.length === 1 || e.key === 'Enter';
-      const isModifier = e.ctrlKey || e.metaKey || e.altKey;
-      if (isCharacterKey && !isModifier) {
-        setCharsTyped(prev => prev + 1);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveSuggestionIndex(prev => Math.min(prev + 1, suggestions.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveSuggestionIndex(prev => Math.max(prev - 1, 0));
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSuggestions([]);
+        return;
       }
     }
+
+    const isCharacterKey = e.key.length === 1 || e.key === 'Enter';
+    const isModifier = e.ctrlKey || e.metaKey || e.altKey;
+    if (isCharacterKey && !isModifier) {
+      setCharsTyped(prev => prev + 1);
+    }
   };
+
+  // Trigger suggestions dynamically on selection change
+  useEffect(() => {
+    let timer;
+    const handleSelectionChange = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        updateSuggestions();
+      }, 100);
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      clearTimeout(timer);
+    };
+  }, [updateSuggestions]);
 
   useEffect(() => {
     const updateFormatting = () => {
@@ -250,7 +391,6 @@ function Textbox() {
   }, []);
 
   const handleChecklist = () => {
-    // Basic mock implementation for checklist inserting
     document.execCommand('insertHTML', false, `<div><input type="checkbox"/>&nbsp;List item</div>`);
   };
 
@@ -343,10 +483,120 @@ function Textbox() {
             box-shadow: 0 0 0 2px rgba(139, 62, 255, 0.2) !important;
             border-radius: 4px;
           }
+
+          /* Suggestion toggle animations */
+          .suggestionToggle {
+            position: relative;
+            width: 260px;
+            height: 36px;
+            user-select: none;
+            cursor: pointer;
+            transform: rotateY(0deg);
+            transform-style: preserve-3d;
+            transition: all .3s ease-out;
+          }
+          .suggestionToggle.flip {
+            transform: rotateY(180deg);
+          }
+          .suggestionToggle .label {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-transform: capitalize;
+            color: #fff;
+            background: #8b3eff;
+            box-shadow: 0 0 5px 2px rgba(139, 62, 255, 0.4);
+            border-radius: 999px;
+            padding: 0 15px;
+            font-size: 14px;
+            transition: all .1s ease-out;
+            backface-visibility: hidden;
+            overflow: hidden;
+          }
+          .suggestionToggle .label:after {
+            position: absolute;
+            width: 80px;
+            height: 100%;
+            left: -80px;
+            content: "";
+            background: #fff;
+            opacity: .4;
+            clip-path: polygon(15% 0, 0 100%, 25% 100%, 40% 0, 75% 0, 60% 100%, 85% 100%, 100% 0);
+            transition: transform .3s ease-out;
+          }
+          .suggestionToggle .label:hover:after {
+            transform: translateX(340px);
+          }
+          .suggestionToggle .label:last-of-type {
+            transform: rotateY(180deg);
+          }
+          .suggestionToggle.loading {
+            pointer-events: none;
+            transform: rotateY(1turn);
+          }
+          .suggestionToggle.loading .label:first-of-type {
+            background: #fff;
+            color: #000;
+            box-shadow: 0 0 0 2px #8b3eff;
+          }
+          .suggestionToggle.loading .label:first-of-type:after {
+            background: #8b3eff;
+            animation: glazeLoading .5s ease-in-out infinite;
+          }
+          @keyframes glazeLoading {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(340px); }
+          }
+
+          /* Caret-based Suggestion Overlay Styling */
+          .suggestion {
+            position: absolute;
+            background: #8b3eff;
+            border-radius: 10px;
+            display: flex;
+            box-shadow: 0 10px 30px 2px rgba(139, 62, 255, 0.4);
+            flex-direction: column;
+            transform-origin: 50% 0;
+            user-select: none;
+            transition: all .1s ease-out;
+            border: 1px solid #8b3eff;
+            z-index: 50;
+          }
+          .suggestion > span {
+            min-width: 180px;
+            padding: 8px 20px;
+            background: #fff;
+            border: 1px solid #8b3eff;
+            border-top-width: 0;
+            color: #000;
+            font-size: 14px;
+            cursor: pointer;
+            text-align: left;
+            transition: background-color 0.15s, color 0.15s;
+          }
+          .suggestion > span:hover {
+            background: rgba(139, 62, 255, 0.1);
+          }
+          .suggestion > span.active, .suggestion > span:active {
+            background: #8b3eff;
+            color: #fff;
+          }
+          .suggestion > span:first-of-type {
+            border-top-width: 1px;
+            border-top-left-radius: 9px;
+            border-top-right-radius: 9px;
+          }
+          .suggestion > span:last-of-type {
+            border-bottom-left-radius: 9px;
+            border-bottom-right-radius: 9px;
+          }
         `}
       </style>
       <div className="w-full h-full flex flex-col items-center justify-center relative flex-1 min-h-0">
-        <div className="w-full max-w-[1500px] flex-1 min-h-0 flex flex-col bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] relative px-5 pb-5 pt-3">
+        <div className="w-full max-w-[1500px] flex-1 min-h-0 flex flex-col bg-white rounded-2xl md:rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] relative px-3 md:px-5 pb-3 md:pb-5 pt-2 md:pt-3">
  
           {/* Toolbar Top Bar */}
           <div
@@ -355,14 +605,14 @@ function Textbox() {
             aria-label="Text formatting toolbar"
             onKeyDown={handleToolbarKeyDown}
             onFocus={handleToolbarFocus}
-            className="flex flex-wrap items-center justify-center gap-y-2 gap-x-1.5 py-3 text-gray-600 text-[13px] border-b border-transparent"
+            className="flex flex-wrap items-center justify-center gap-y-1.5 md:gap-y-2 gap-x-1 md:gap-x-1.5 py-2 md:py-3 text-gray-600 text-xs md:text-[13px] border-b border-transparent"
           >
             {/* Font Selectors */}
-            <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200">
+            <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200 h-7 md:h-8">
               <select
                 tabIndex={focusedIndex === 0 ? 0 : -1}
                 aria-label="Font family"
-                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-2 pr-6 py-1.5 appearance-none w-full h-full z-10 focus-ring"
+                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-1.5 md:pl-2 pr-5 md:pr-6 py-1 md:py-1.5 appearance-none w-full h-full z-10 focus-ring text-xs md:text-[13px]"
                 style={{ fontFamily: 'inherit' }}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -386,11 +636,11 @@ function Textbox() {
               </div>
             </div>
 
-            <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200">
+            <div className="relative flex items-center hover:bg-gray-100 rounded transition border border-transparent focus-within:border-gray-200 h-7 md:h-8">
               <select
                 tabIndex={focusedIndex === 1 ? 0 : -1}
                 aria-label="Text style"
-                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-2 pr-6 py-1.5 appearance-none w-full h-full z-10 focus-ring"
+                className="bg-transparent text-gray-700 font-medium cursor-pointer outline-none pl-1.5 md:pl-2 pr-5 md:pr-6 py-1 md:py-1.5 appearance-none w-full h-full z-10 focus-ring text-xs md:text-[13px]"
                 onChange={(e) => {
                   const val = e.target.value;
                   e.target.blur();
@@ -415,10 +665,10 @@ function Textbox() {
             <ToolbarDivider />
 
             {/* Formatting */}
-            <ActionIcon command="bold" isActive={activeFormats.bold} editorRef={editorRef} tabIndex={focusedIndex === 2 ? 0 : -1} aria-label="Bold" aria-pressed={!!activeFormats.bold}><span className="font-sans font-bold text-[15px]">B</span></ActionIcon>
-            <ActionIcon command="italic" isActive={activeFormats.italic} editorRef={editorRef} tabIndex={focusedIndex === 3 ? 0 : -1} aria-label="Italic" aria-pressed={!!activeFormats.italic}><span className="font-serif italic text-[15px]">I</span></ActionIcon>
-            <ActionIcon command="underline" isActive={activeFormats.underline} editorRef={editorRef} tabIndex={focusedIndex === 4 ? 0 : -1} aria-label="Underline" aria-pressed={!!activeFormats.underline}><span className="font-serif underline text-[15px]">U</span></ActionIcon>
-            <ActionIcon command="strikeThrough" isActive={activeFormats.strikeThrough} editorRef={editorRef} tabIndex={focusedIndex === 5 ? 0 : -1} aria-label="Strikethrough" aria-pressed={!!activeFormats.strikeThrough}><span className="font-serif line-through text-[15px]">S</span></ActionIcon>
+            <ActionIcon command="bold" isActive={activeFormats.bold} editorRef={editorRef} tabIndex={focusedIndex === 2 ? 0 : -1} aria-label="Bold" aria-pressed={!!activeFormats.bold}><span className="font-sans font-bold text-[13px] md:text-[15px]">B</span></ActionIcon>
+            <ActionIcon command="italic" isActive={activeFormats.italic} editorRef={editorRef} tabIndex={focusedIndex === 3 ? 0 : -1} aria-label="Italic" aria-pressed={!!activeFormats.italic}><span className="font-serif italic text-[13px] md:text-[15px]">I</span></ActionIcon>
+            <ActionIcon command="underline" isActive={activeFormats.underline} editorRef={editorRef} tabIndex={focusedIndex === 4 ? 0 : -1} aria-label="Underline" aria-pressed={!!activeFormats.underline}><span className="font-serif underline text-[13px] md:text-[15px]">U</span></ActionIcon>
+            <ActionIcon command="strikeThrough" isActive={activeFormats.strikeThrough} editorRef={editorRef} tabIndex={focusedIndex === 5 ? 0 : -1} aria-label="Strikethrough" aria-pressed={!!activeFormats.strikeThrough}><span className="font-serif line-through text-[13px] md:text-[15px]">S</span></ActionIcon>
 
             <ToolbarDivider />
 
@@ -431,8 +681,8 @@ function Textbox() {
             <ToolbarDivider />
 
             {/* Special */}
-            <ActionIcon command="formatBlock" arg="blockquote" isActive={activeFormats.blockquote} editorRef={editorRef} tabIndex={focusedIndex === 10 ? 0 : -1} aria-label="Quote" aria-pressed={!!activeFormats.blockquote}><span className="font-serif font-bold text-[20px] leading-none mb-1">"</span></ActionIcon>
-            <ActionIcon command="formatBlock" arg="pre" isActive={activeFormats.pre} editorRef={editorRef} tabIndex={focusedIndex === 11 ? 0 : -1} aria-label="Code block" aria-pressed={!!activeFormats.pre}><span className="font-mono text-[12px] font-bold">{"</>"}</span></ActionIcon>
+            <ActionIcon command="formatBlock" arg="blockquote" isActive={activeFormats.blockquote} editorRef={editorRef} tabIndex={focusedIndex === 10 ? 0 : -1} aria-label="Quote" aria-pressed={!!activeFormats.blockquote}><span className="font-serif font-bold text-[16px] md:text-[20px] leading-none mb-1">"</span></ActionIcon>
+            <ActionIcon command="formatBlock" arg="pre" isActive={activeFormats.pre} editorRef={editorRef} tabIndex={focusedIndex === 11 ? 0 : -1} aria-label="Code block" aria-pressed={!!activeFormats.pre}><span className="font-mono text-[10px] md:text-[12px] font-bold">{"</>"}</span></ActionIcon>
 
             <ToolbarDivider />
 
@@ -451,12 +701,12 @@ function Textbox() {
 
             {/* Colors and Media */}
             <div
-              className="flex flex-col items-center justify-center h-8 w-8 hover:bg-gray-100 rounded transition-colors relative overflow-hidden group color-picker-container"
+              className="flex flex-col items-center justify-center h-7 w-7 md:h-8 md:w-8 hover:bg-gray-100 rounded transition-colors relative overflow-hidden group color-picker-container"
               onMouseDown={saveSelection}
             >
-              <span className="font-serif font-bold text-[15px] leading-none relative z-10 pointer-events-none opacity-70 group-hover:opacity-100">A</span>
+              <span className="font-serif font-bold text-[13px] md:text-[15px] leading-none relative z-10 pointer-events-none opacity-70 group-hover:opacity-100">A</span>
               <div
-                className="w-[12px] h-[3px] mt-[2px] rounded-full relative z-10 pointer-events-none"
+                className="w-[10px] md:w-[12px] h-[2.5px] md:h-[3px] mt-[1.5px] md:mt-[2px] rounded-full relative z-10 pointer-events-none"
                 style={{ backgroundColor: activeFormats.foreColor && activeFormats.foreColor !== 'false' && activeFormats.foreColor !== 'rgba(0, 0, 0, 0)' ? activeFormats.foreColor : '#1f2937' }}
               ></div>
               <input
@@ -473,60 +723,76 @@ function Textbox() {
             <ActionIcon command="insertImage" editorRef={editorRef} tabIndex={focusedIndex === 19 ? 0 : -1} aria-label="Insert image"><ImageIcon /></ActionIcon>
             <Icon onClick={handleVideo} editorRef={editorRef} tabIndex={focusedIndex === 20 ? 0 : -1} aria-label="Insert video"><VideoIcon /></Icon>
             <ActionIcon command="removeFormat" editorRef={editorRef} tabIndex={focusedIndex === 21 ? 0 : -1} aria-label="Clear formatting">
-              <div className="flex items-start font-serif font-bold text-[14px]">
-                T<span className="text-[10px] mt-1 ml-[1px]">x</span>
+              <div className="flex items-start font-serif font-bold text-[12px] md:text-[14px]">
+                T<span className="text-[9px] md:text-[10px] mt-1 ml-[1px]">x</span>
               </div>
             </ActionIcon>
           </div>
 
           {/* Editor Boundary Area */}
-          <div className="flex-1 min-h-0 w-full border-[2px] border-gray-100 rounded-2xl p-6 shadow-[inset_0_2px_12px_rgba(0,0,0,0.03)] outline-none overflow-y-auto mb-4 bg-white focus-within:border-gray-200 transition-colors">
+          <div className="flex-1 min-h-0 w-full border-[2px] border-gray-100 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-[inset_0_2px_12px_rgba(0,0,0,0.03)] outline-none overflow-y-auto mb-16 md:mb-4 bg-white focus-within:border-gray-200 transition-colors">
             <div
               ref={editorRef}
               className="editor-content w-full h-full outline-none font-[Quicksand] text-gray-800 text-[15px] leading-relaxed relative z-0"
               contentEditable
               suppressContentEditableWarning
-              onInput={handleEditorInput}
               onKeyDown={handleEditorKeyDown}
-              onBlur={removeGhost}
-              onClick={removeGhost}
+              onBlur={() => setTimeout(() => setSuggestions([]), 200)}
             >
               Hello There, Welcome to Smart Compose Demo!
             </div>
           </div>
 
-          {/* Floating Action Button overlapping bottom container line */}
-          <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 z-10 flex flex-col items-center gap-2">
-            {/* Keystroke savings badge */}
-            <div className="bg-white border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-3 py-1 rounded-full text-xs font-semibold text-gray-600 flex items-center gap-1.5 transition-all mb-1 select-none">
+          {/* Caret-based Suggestion Overlay */}
+          {suggestions.length > 0 && (
+            <div
+              className="suggestion"
+              style={{
+                position: 'absolute',
+                top: suggestionRect.top,
+                left: suggestionRect.left,
+              }}
+            >
+              {suggestions.map((s, idx) => (
+                <span
+                  key={idx}
+                  className={idx === activeSuggestionIndex ? 'active' : ''}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    acceptSuggestion(s.value);
+                  }}
+                >
+                  {s.display}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Footer Area with suggestion mode flip toggle & stats */}
+          <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 w-[90%] flex justify-center md:justify-between items-center px-4 md:px-8 perspective-1000">
+            <div
+              onClick={() => {
+                if (!suggestionLoading) {
+                  setSuggestionMode(prev => prev === 'sentence' ? 'word' : 'sentence');
+                }
+              }}
+              className={`suggestionToggle mx-auto md:mx-0 ${suggestionMode === 'word' ? 'flip' : ''} ${suggestionLoading ? 'loading' : ''}`}
+            >
+              <div className="label">
+                {suggestionLoading ? 'loading suggestions...' : 'sentence based suggestion'}
+              </div>
+              <div className="label">
+                word based suggestion
+              </div>
+            </div>
+
+            {/* Keystroke savings stats badge (always shown next to it or right-aligned on desktop) */}
+            <div className="hidden md:flex items-center gap-1.5 bg-white border border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.08)] px-3.5 py-1.5 rounded-full text-xs font-semibold text-gray-600 select-none">
               <span className={`w-1.5 h-1.5 rounded-full ${savingsPercentage > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
               <span>⚡ {savingsPercentage}% fewer keystrokes this session</span>
               <span className="text-[10px] text-gray-400">({charsSaved} saved / {charsTyped} typed)</span>
             </div>
-
-            {isSuggestionOpen && (
-              <div className="absolute bottom-full mb-3 bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-gray-100 p-2 w-[280px] flex flex-col gap-1 z-20">
-                {["Thank you for your time!", "Looking forward to hearing from you.", "Please let me know if you have any questions."].map((suggestion, idx) => (
-                  <button
-                    key={idx}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      document.execCommand('insertText', false, suggestion + " ");
-                      setIsSuggestionOpen(false);
-                    }}
-                    className="text-left text-[14px] text-gray-700 hover:bg-[#f6f0ff] hover:text-[#8b3eff] font-medium px-3 py-2 rounded-lg transition-colors border border-transparent"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => setIsSuggestionOpen(!isSuggestionOpen)}
-              className="bg-[#8b3eff] hover:bg-[#7b2ef1] text-white px-7 py-2.5 rounded-full shadow-[0_4px_16px_rgba(139,62,255,0.4)] text-[14px] font-medium transition-transform hover:scale-105 active:scale-95 whitespace-nowrap outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8b3eff]"
-            >
-              Sentence Based Suggestion
-            </button>
           </div>
 
         </div>
